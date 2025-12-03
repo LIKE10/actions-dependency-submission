@@ -163,6 +163,36 @@ export class DependencySubmitter {
   }
 
   /**
+   * Converts a version reference to wildcard format
+   *
+   * @param ref Version/ref (e.g., v1, v1.2, v1.2.3)
+   * @returns Version with wildcards (e.g., v1.*.*, v1.2.*, v1.2.3)
+   */
+  private convertToWildcardVersion(ref: string): string {
+    // Match semver-like version patterns: v1, v1.2, v1.2.3
+    const versionMatch = ref.match(/^v(\d+)(?:\.(\d+))?(?:\.(\d+))?$/)
+
+    if (!versionMatch) {
+      // Not a semver version reference, return as-is
+      return ref
+    }
+
+    const [, major, minor, patch] = versionMatch
+
+    // Build version with wildcards for missing parts
+    if (patch !== undefined) {
+      // v1.2.3 - all parts present
+      return ref
+    } else if (minor !== undefined) {
+      // v1.2 - missing patch
+      return `v${major}.${minor}.*`
+    } else {
+      // v1 - missing minor and patch
+      return `v${major}.*.*`
+    }
+  }
+
+  /**
    * Creates a Package URL (purl) for a GitHub Action
    *
    * @param owner Repository owner
@@ -171,7 +201,9 @@ export class DependencySubmitter {
    * @returns Package URL string
    */
   private createPackageUrl(owner: string, repo: string, ref: string): string {
+    // Convert version to wildcard format if applicable
+    const version = this.convertToWildcardVersion(ref)
     // Package URL format for GitHub Actions
-    return `pkg:githubactions/${owner}/${repo}@${ref}`
+    return `pkg:githubactions/${owner}/${repo}@${version}`
   }
 }

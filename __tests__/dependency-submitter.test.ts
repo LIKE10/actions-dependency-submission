@@ -51,7 +51,7 @@ describe('DependencySubmitter', () => {
 
       const manifests = call.manifests['github-actions.yml'].resolved
       expect(Object.keys(manifests)).toContain(
-        'pkg:githubactions/actions/checkout@v4'
+        'pkg:githubactions/actions/checkout@v4.*.*'
       )
     })
 
@@ -92,10 +92,10 @@ describe('DependencySubmitter', () => {
       const manifests = call.manifests['github-actions.yml'].resolved
 
       expect(Object.keys(manifests)).toContain(
-        'pkg:githubactions/myorg/checkout@v4'
+        'pkg:githubactions/myorg/checkout@v4.*.*'
       )
       expect(Object.keys(manifests)).toContain(
-        'pkg:githubactions/actions/checkout@v4'
+        'pkg:githubactions/actions/checkout@v4.*.*'
       )
     })
 
@@ -219,6 +219,166 @@ describe('DependencySubmitter', () => {
       expect(
         manifests['.github/actions/my-action/action.yml'].file?.source_location
       ).toBe('.github/actions/my-action/action.yml')
+    })
+
+    it('Converts v1 to v1.*.*', async () => {
+      github.mockOctokit.rest.dependencyGraph.createRepositorySnapshot.mockResolvedValueOnce(
+        {}
+      )
+
+      const submitter = new DependencySubmitter({
+        token: 'test-token',
+        repository: 'test-owner/test-repo',
+        sha: 'abc123',
+        ref: 'refs/heads/main'
+      })
+
+      const dependencies = [
+        {
+          owner: 'actions',
+          repo: 'checkout',
+          ref: 'v1'
+        }
+      ]
+
+      await submitter.submitDependencies(dependencies)
+
+      const call =
+        github.mockOctokit.rest.dependencyGraph.createRepositorySnapshot.mock
+          .calls[0][0]
+      const manifests = call.manifests['github-actions.yml'].resolved
+
+      expect(Object.keys(manifests)).toContain(
+        'pkg:githubactions/actions/checkout@v1.*.*'
+      )
+    })
+
+    it('Converts v1.2 to v1.2.*', async () => {
+      github.mockOctokit.rest.dependencyGraph.createRepositorySnapshot.mockResolvedValueOnce(
+        {}
+      )
+
+      const submitter = new DependencySubmitter({
+        token: 'test-token',
+        repository: 'test-owner/test-repo',
+        sha: 'abc123',
+        ref: 'refs/heads/main'
+      })
+
+      const dependencies = [
+        {
+          owner: 'actions',
+          repo: 'setup-node',
+          ref: 'v1.2'
+        }
+      ]
+
+      await submitter.submitDependencies(dependencies)
+
+      const call =
+        github.mockOctokit.rest.dependencyGraph.createRepositorySnapshot.mock
+          .calls[0][0]
+      const manifests = call.manifests['github-actions.yml'].resolved
+
+      expect(Object.keys(manifests)).toContain(
+        'pkg:githubactions/actions/setup-node@v1.2.*'
+      )
+    })
+
+    it('Keeps v1.2.3 unchanged', async () => {
+      github.mockOctokit.rest.dependencyGraph.createRepositorySnapshot.mockResolvedValueOnce(
+        {}
+      )
+
+      const submitter = new DependencySubmitter({
+        token: 'test-token',
+        repository: 'test-owner/test-repo',
+        sha: 'abc123',
+        ref: 'refs/heads/main'
+      })
+
+      const dependencies = [
+        {
+          owner: 'actions',
+          repo: 'cache',
+          ref: 'v1.2.3'
+        }
+      ]
+
+      await submitter.submitDependencies(dependencies)
+
+      const call =
+        github.mockOctokit.rest.dependencyGraph.createRepositorySnapshot.mock
+          .calls[0][0]
+      const manifests = call.manifests['github-actions.yml'].resolved
+
+      expect(Object.keys(manifests)).toContain(
+        'pkg:githubactions/actions/cache@v1.2.3'
+      )
+    })
+
+    it('Keeps SHA references unchanged', async () => {
+      github.mockOctokit.rest.dependencyGraph.createRepositorySnapshot.mockResolvedValueOnce(
+        {}
+      )
+
+      const submitter = new DependencySubmitter({
+        token: 'test-token',
+        repository: 'test-owner/test-repo',
+        sha: 'abc123',
+        ref: 'refs/heads/main'
+      })
+
+      const dependencies = [
+        {
+          owner: 'actions',
+          repo: 'checkout',
+          ref: 'abc123def456abc123def456abc123def456abcd'
+        }
+      ]
+
+      await submitter.submitDependencies(dependencies)
+
+      const call =
+        github.mockOctokit.rest.dependencyGraph.createRepositorySnapshot.mock
+          .calls[0][0]
+      const manifests = call.manifests['github-actions.yml'].resolved
+
+      expect(Object.keys(manifests)).toContain(
+        'pkg:githubactions/actions/checkout@abc123def456abc123def456abc123def456abcd'
+      )
+    })
+
+    it('Keeps branch references unchanged', async () => {
+      github.mockOctokit.rest.dependencyGraph.createRepositorySnapshot.mockResolvedValueOnce(
+        {}
+      )
+
+      const submitter = new DependencySubmitter({
+        token: 'test-token',
+        repository: 'test-owner/test-repo',
+        sha: 'abc123',
+        ref: 'refs/heads/main'
+      })
+
+      const dependencies = [
+        {
+          owner: 'actions',
+          repo: 'checkout',
+          ref: 'main'
+        }
+      ]
+
+      await submitter.submitDependencies(dependencies)
+
+      const call =
+        github.mockOctokit.rest.dependencyGraph.createRepositorySnapshot.mock
+          .calls[0][0]
+      const manifests = call.manifests['github-actions.yml'].resolved
+
+      expect(Object.keys(manifests)).toContain(
+        'pkg:githubactions/actions/checkout@main'
+      )
     })
   })
 })
