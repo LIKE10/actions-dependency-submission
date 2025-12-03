@@ -1,4 +1,4 @@
-# Actions Dependency Submission
+# GitHub Actions Dependency Submission
 
 ![Linter](https://github.com/jessehouwing/actions-dependency-submission/actions/workflows/linter.yml/badge.svg)
 ![CI](https://github.com/jessehouwing/actions-dependency-submission/actions/workflows/ci.yml/badge.svg)
@@ -6,62 +6,92 @@
 ![CodeQL](https://github.com/jessehouwing/actions-dependency-submission/actions/workflows/codeql-analysis.yml/badge.svg)
 ![Coverage](./badges/coverage.svg)
 
-A GitHub Action that automatically submits GitHub Actions dependencies from
-workflows, composite actions, and callable workflows to the GitHub Dependency
-Graph using the Dependency Submission API.
+A GitHub Action that scans your repository's workflow files and submits action
+dependencies to GitHub's Dependency Graph with fork traversal support.
 
 ## Features
 
-- 🔍 **Comprehensive Scanning**: Automatically scans `.github/workflows`
-  directory for workflow files
-- 🔄 **Recursive Detection**: Finds and processes local composite actions and
-  callable workflows
-- 📦 **Nested Dependencies**: Recursively scans dependencies within composite
-  actions
-- 🎯 **Custom Paths**: Support for additional paths to scan for composite
-  actions and callable workflows
-- 📊 **Dependency Graph Integration**: Submits all discovered dependencies to
-  GitHub's Dependency Graph
-- 🔒 **Security Insights**: Enables Dependabot alerts for GitHub Actions
-  dependencies
+- 🔍 **Automatic Workflow Scanning**: Scans `.github/workflows` directory for
+  GitHub Actions dependencies
+- 📦 **Composite Actions**: Recursively scans local composite actions for nested dependencies
+- 🔄 **Callable Workflows**: Detects and processes callable workflows referenced from workflows
+- 🎯 **Additional Paths**: Supports scanning custom directories for composite actions and callable workflows
+- 🔀 **Fork Traversal**: Detects forked actions and submits both the fork and
+  original repository as dependencies
+- 🔗 **GitHub API Integration**: Uses GitHub's fork relationship to find
+  original repositories
+- 🎯 **Regex Pattern Matching**: Supports custom regex patterns for repositories
+  without fork relationships (e.g., EMU or GitHub-DR)
+- 📊 **Dependency Graph Integration**: Submits dependencies to GitHub's
+  Dependency Graph for security advisory tracking
 
 ## Usage
 
-Add this action to your workflow to automatically submit your GitHub Actions
-dependencies:
+### Basic Usage
 
 ```yaml
 name: Submit Dependencies
-
 on:
   push:
     branches: [main]
-  workflow_dispatch:
-
-# Required permission to submit dependencies
-permissions:
-  contents: write
+  schedule:
+    - cron: '0 0 * * 0' # Weekly
 
 jobs:
   submit-dependencies:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # Required to read workflow files
+      id-token: write # Required for dependency submission
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Submit dependencies
-        uses: jessehouwing/actions-dependency-submission@v1
+      - uses: actions/checkout@v4
+      - uses: jessehouwing/actions-dependency-submission@v1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
-### With Additional Paths
+### With Fork Organization Support
 
-If you have composite actions or callable workflows in custom locations:
+If your enterprise uses forked actions (e.g., `myenterprise/actions-checkout` as
+a fork of `actions/checkout`):
 
 ```yaml
-- name: Submit dependencies
-  uses: jessehouwing/actions-dependency-submission@v1
+- uses: jessehouwing/actions-dependency-submission@v1
+  with:
+    token: ${{ secrets.GITHUB_TOKEN }}
+    fork-organizations: 'myenterprise,myorg'
+```
+
+This will submit both `myenterprise/actions-checkout` and the original
+`actions/checkout` as dependencies, ensuring security advisories for the
+original repository also apply to your fork.
+
+### With Custom Regex Pattern
+
+For cases where fork relationships don't exist (e.g., EMU or GitHub-DR
+environments):
+
+```yaml
+- uses: jessehouwing/actions-dependency-submission@v1
+  with:
+    token: ${{ secrets.GITHUB_TOKEN }}
+    fork-organizations: 'myenterprise'
+    fork-regex: '^(?<org>myenterprise)/actions-(?<repo>.+)$'
+```
+
+The regex must contain named captures `org` and `repo` to identify the original
+repository. In this example:
+
+- `myenterprise/actions-checkout` would resolve to `myenterprise/checkout`
+- This is useful when forks follow a naming convention but don't have GitHub
+  fork relationships
+
+### With Additional Paths for Composite Actions
+
+If you store composite actions or callable workflows in custom directories:
+
+```yaml
+- uses: jessehouwing/actions-dependency-submission@v1
   with:
     token: ${{ secrets.GITHUB_TOKEN }}
     additional-paths: |
@@ -70,139 +100,97 @@ If you have composite actions or callable workflows in custom locations:
       shared/actions
 ```
 
+This will:
+- Scan the specified directories for composite actions (identified by `runs.using: composite`)
+- Recursively extract dependencies from those composite actions
+- Include dependencies from callable workflows (identified by `on.workflow_call`)
+- Process local action references (e.g., `uses: ./local-action`) in workflows
+
 ## Inputs
 
-| Input              | Description                                                                                        | Required | Default               |
-| ------------------ | -------------------------------------------------------------------------------------------------- | -------- | --------------------- |
-| `token`            | GitHub token with `contents:write` permission                                                      | Yes      | `${{ github.token }}` |
-| `workflow-path`    | Path to the .github/workflows directory                                                            | No       | `.github/workflows`   |
-| `additional-paths` | Additional paths to scan for composite actions and callable workflows (comma or newline separated) | No       | `''`                  |
+| Input                | Description                                                                                                   | Required | Default                    |
+| -------------------- | ------------------------------------------------------------------------------------------------------------- | -------- | -------------------------- |
+| `token`              | GitHub token for API access and dependency submission                                                         | Yes      | `${{ github.token }}`      |
+| `repository`         | Repository to submit dependencies for (owner/repo format)                                                     | No       | `${{ github.repository }}` |
+| `workflow-directory` | Directory containing workflow files to scan                                                                   | No       | `.github/workflows`        |
+| `additional-paths`   | Additional paths to scan for composite actions and callable workflows (comma-separated or newline-separated)  | No       | -                          |
+| `fork-organizations` | Comma-separated list of organization names that contain forked actions                                        | No       | -                          |
+| `fork-regex`         | Regular expression pattern to transform forked repository names. Must contain named captures `org` and `repo` | No       | -                          |
 
 ## Outputs
 
-| Output             | Description                                                     |
-| ------------------ | --------------------------------------------------------------- |
-| `dependency-count` | Number of unique dependencies submitted to the Dependency Graph |
+| Output             | Description                                              |
+| ------------------ | -------------------------------------------------------- |
+| `dependency-count` | Number of dependencies submitted to the Dependency Graph |
 
 ## How It Works
 
-1. **Workflow Scanning**: Scans all YAML files in the workflows directory
-2. **Dependency Extraction**: Extracts `uses:` statements from workflow steps
-   and jobs
-3. **Local Action Detection**: Identifies local composite actions (e.g.,
-   `uses: ./path/to/action`)
-4. **Callable Workflow Detection**: Identifies callable workflows (e.g.,
-   `uses: ./path/to/workflow.yml`)
-5. **Recursive Processing**: For each local action/workflow found:
+1. **Workflow Scanning**: The action scans all `.yml` and `.yaml` files in the
+   specified workflow directory
+2. **Dependency Extraction**: Parses each workflow file to extract `uses:`
+   statements that reference GitHub Actions
+3. **Local Action Processing**: Detects local action references (e.g., `uses: ./local-action`):
+   - Resolves the path relative to the workflow file
    - Checks if it's a composite action
-   - Recursively scans for additional dependencies
-   - Processes nested local actions
-6. **Additional Paths**: Scans any additional paths provided for composite
-   actions
-7. **Dependency Submission**: Submits all unique dependencies to GitHub's
-   Dependency Graph API
+   - Recursively extracts dependencies from the composite action
+4. **Callable Workflow Processing**: Detects callable workflow references (e.g., `uses: ./workflow.yml` at job level):
+   - Processes the callable workflow
+   - Extracts all action dependencies from it
+5. **Additional Paths Scanning**: If specified, scans additional directories for composite actions:
+   - Finds all YAML files in the specified paths
+   - Processes composite actions found there
+   - Recursively extracts their dependencies
+6. **Fork Detection**: For actions from organizations in the
+   `fork-organizations` list:
+   - First tries to apply the `fork-regex` pattern if provided
+   - Falls back to checking GitHub's fork relationship via the API
+7. **Dependency Submission**: Submits all dependencies to GitHub's Dependency
+   Graph:
+   - For forked actions, submits both the fork and original repository
+   - Uses Package URL (purl) format: `pkg:github/{owner}/{repo}@{ref}`
+8. **Security Advisories**: GitHub automatically matches submitted dependencies
+   against its security advisory database
 
-## What Gets Detected
+## Why Use This Action?
 
-### Remote Actions
+When you use forked GitHub Actions in your workflows, GitHub's Dependabot and
+security advisories only track the fork, not the original repository. This
+means:
 
-- Standard format: `owner/repo@version`
-- With path: `owner/repo/path/to/action@version`
-- Example: `actions/checkout@v4`, `docker/build-push-action@v5`
+- Security vulnerabilities in the original action won't trigger alerts for your
+  fork
+- You won't be notified when the original action has security updates
 
-### Local Composite Actions
+This action solves this problem by submitting both repositories as dependencies,
+ensuring you receive security advisories for both the fork and the original.
 
-- Relative paths: `./path/to/action`, `../path/to/action`
-- Must contain an `action.yml` or `action.yaml` file
-- Must have `runs.using: composite`
-- Example: `./.github/actions/my-action`
+## Example Use Case
 
-### Callable Workflows
+Your enterprise has forked `actions/checkout` to `myenterprise/actions-checkout`
+for additional security controls. Your workflows use:
 
-- Relative paths: `./path/to/workflow.yml`
-- Must have `on.workflow_call` trigger
-- Example: `./.github/workflows/reusable-workflow.yml`
+```yaml
+- uses: myenterprise/actions-checkout@v4
+```
 
-### Docker Actions
+Without this action, you only get security advisories for
+`myenterprise/actions-checkout`. With this action configured, you'll receive
+advisories for both:
 
-Docker-based actions (`docker://`) are intentionally skipped as they don't have
-version tracking suitable for dependency graphs.
-
-## Example Scenarios
-
-### Scenario 1: Basic Workflow
-
-A workflow uses `actions/checkout@v4` and `actions/setup-node@v4`. Both
-dependencies are detected and submitted.
-
-### Scenario 2: Local Composite Action
-
-A workflow uses a local action at `./.github/actions/build`. The action is
-detected, and its internal dependencies (e.g., `actions/cache@v3`) are also
-discovered and submitted.
-
-### Scenario 3: Nested Local Actions
-
-A workflow uses a local action that itself references another local action. Both
-actions are processed, and all their dependencies are discovered recursively.
-
-### Scenario 4: Callable Workflows
-
-A workflow calls a reusable workflow using
-`uses: ./.github/workflows/deploy.yml`. The callable workflow is processed, and
-all its action dependencies are discovered.
-
-### Scenario 5: Custom Locations
-
-You store composite actions in a custom `shared/actions` directory. By
-specifying this in `additional-paths`, these actions are scanned even if not
-directly referenced from workflows.
-
-## Benefits
-
-- **Automated Dependency Tracking**: No manual maintenance of dependency lists
-- **Dependabot Integration**: Automatically get Dependabot alerts for outdated
-  or vulnerable actions
-- **Security Insights**: View all action dependencies in your repository's
-  Insights > Dependency graph
-- **Supply Chain Security**: Better visibility into your CI/CD pipeline
-  dependencies
+- `myenterprise/actions-checkout@v4`
+- `actions/checkout@v4`
 
 ## Permissions
 
-This action requires the `contents: write` permission to submit dependencies to
-the Dependency Graph:
+The action requires the following permissions:
 
 ```yaml
 permissions:
-  contents: write
+  contents: read # To read workflow files
+  id-token: write # For dependency submission API
 ```
 
-## Troubleshooting
-
-### No dependencies submitted
-
-- Verify the `workflow-path` is correct
-- Check that YAML files are valid and contain `uses:` statements
-- Ensure the GitHub token has `contents:write` permission
-
-### Local actions not detected
-
-- Verify paths use relative references (`./ or ../`)
-- Ensure local actions have `action.yml` or `action.yaml` files
-- Check that composite actions have `runs.using: composite`
-
-### API errors
-
-- Verify your repository has the Dependency Graph feature enabled
-- Check that the GitHub token is valid and has proper permissions
-
 ## Development
-
-### Prerequisites
-
-- Node.js 24.x or later
-- npm
 
 ### Setup
 
@@ -218,43 +206,30 @@ permissions:
    npm test
    ```
 
-3. Lint code:
-
-   ```bash
-   npm run lint
-   ```
-
-4. Build the action:
+3. Bundle the action:
    ```bash
    npm run bundle
    ```
 
-### Project Structure
+### Testing
 
+The action includes comprehensive unit tests for:
+
+- Workflow file parsing
+- Fork resolution via GitHub API
+- Regex pattern matching
+- Dependency submission
+
+Run tests with coverage:
+
+```bash
+npm run all
 ```
-.
-├── src/
-│   ├── main.ts                    # Entry point
-│   ├── dependency-scanner.ts      # Scans for dependencies
-│   ├── dependency-submission.ts   # Submits to GitHub API
-│   ├── workflow-parser.ts         # Parses YAML files
-│   └── types.ts                   # Type definitions
-├── __tests__/                     # Unit tests
-├── __fixtures__/                  # Test fixtures
-└── dist/                          # Compiled JavaScript
-```
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-## Related Documentation
-
-- [GitHub Dependency Submission API](https://docs.github.com/en/rest/dependency-graph/dependency-submission)
-- [About the dependency graph](https://docs.github.com/en/code-security/supply-chain-security/understanding-your-software-supply-chain/about-the-dependency-graph)
-- [Composite Actions](https://docs.github.com/en/actions/creating-actions/creating-a-composite-action)
-- [Reusable Workflows](https://docs.github.com/en/actions/using-workflows/reusing-workflows)
 
 ## License
 
 MIT
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.

@@ -3,131 +3,147 @@
  */
 import { jest } from '@jest/globals'
 import * as core from '../__fixtures__/core.js'
+import * as github from '../__fixtures__/github.js'
+import * as fs from 'fs'
+import * as os from 'os'
+import * as path from 'path'
 
-// Mock modules
+// Mocks should be declared before the module being tested is imported.
 jest.unstable_mockModule('@actions/core', () => core)
-jest.unstable_mockModule('../src/dependency-scanner.js', () => ({
-  scanDependencies: jest.fn(() => Promise.resolve(new Map()))
-}))
-jest.unstable_mockModule('../src/dependency-submission.js', () => ({
-  submitDependencies: jest.fn(() => Promise.resolve(0))
-}))
+jest.unstable_mockModule('@actions/github', () => github)
 
+// The module being tested should be imported dynamically.
 const { run } = await import('../src/main.js')
-const { scanDependencies } = await import('../src/dependency-scanner.js')
-const { submitDependencies } = await import('../src/dependency-submission.js')
 
 describe('main.ts', () => {
-  const originalEnv = process.env
+  let tempDir: string
 
   beforeEach(() => {
-    jest.resetAllMocks()
-
-    // Set up environment variables
-    process.env = {
-      ...originalEnv,
-      GITHUB_REPOSITORY: 'owner/repo',
-      GITHUB_SHA: 'abc123',
-      GITHUB_REF: 'refs/heads/main',
-      GITHUB_WORKSPACE: '/workspace'
-    }
+    jest.clearAllMocks()
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'main-test-'))
 
     // Set default inputs
     core.getInput.mockImplementation((name: string) => {
-      switch (name) {
-        case 'token':
-          return 'test-token'
-        case 'workflow-path':
-          return '.github/workflows'
-        case 'additional-paths':
-          return ''
-        default:
-          return ''
+      const inputs: Record<string, string> = {
+        token: 'test-token',
+        repository: 'test-owner/test-repo',
+        'workflow-directory': tempDir,
+        'fork-organizations': '',
+        'fork-regex': ''
       }
+      return inputs[name] || ''
     })
   })
 
   afterEach(() => {
-    process.env = originalEnv
+    if (fs.existsSync(tempDir)) {
+      fs.rmSync(tempDir, { recursive: true, force: true })
+    }
   })
 
-  it('should scan and submit dependencies successfully', async () => {
-    const mockDeps = new Map([
-      [
-        'actions/checkout@v4',
-        {
-          name: 'actions/checkout',
-          version: 'v4',
-          type: 'action' as const,
-          source: 'actions/checkout@v4'
-        }
-      ]
-    ])
+  it('Processes workflow files and submits dependencies', async () => {
+    const workflowContent = `
+name: Test Workflow
+on: push
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+`
+    fs.writeFileSync(path.join(tempDir, 'test.yml'), workflowContent)
 
-    ;(scanDependencies as jest.Mock).mockResolvedValue(mockDeps)
-    ;(submitDependencies as jest.Mock).mockResolvedValue(1)
+    github.mockOctokit.rest.dependencyGraph.createRepositorySnapshot.mockResolvedValueOnce(
+      {}
+    )
 
     await run()
 
-    expect(scanDependencies).toHaveBeenCalledWith(
-      '/workspace/.github/workflows',
-      [],
-      '/workspace'
-    )
-
-    expect(submitDependencies).toHaveBeenCalledWith(
-      'test-token',
-      'owner',
-      'repo',
-      mockDeps,
-      'abc123',
-      'refs/heads/main'
-    )
-
-    expect(core.setOutput).toHaveBeenCalledWith('dependency-count', '1')
+    expect(core.setOutput).toHaveBeenCalledWith('dependency-count', 1)
+    expect(
+      github.mockOctokit.rest.dependencyGraph.createRepositorySnapshot
+    ).toHaveBeenCalledTimes(1)
+    expect(core.setFailed).not.toHaveBeenCalled()
   })
 
-  it('should handle additional paths', async () => {
+  it('Handles empty workflow directory', async () => {
+    await run()
+
+    expect(core.warning).toHaveBeenCalledWith(
+      'No action dependencies found in workflow files'
+    )
+    expect(core.setOutput).toHaveBeenCalledWith('dependency-count', 0)
+  })
+
+  it('Processes forked actions with fork organizations', async () => {
     core.getInput.mockImplementation((name: string) => {
-      switch (name) {
-        case 'token':
-          return 'test-token'
-        case 'workflow-path':
-          return '.github/workflows'
-        case 'additional-paths':
-          return 'actions,custom/actions'
-        default:
-          return ''
+      const inputs: Record<string, string> = {
+        token: 'test-token',
+        repository: 'test-owner/test-repo',
+        'workflow-directory': tempDir,
+        'fork-organizations': 'myorg',
+        'fork-regex': ''
+      }
+      return inputs[name] || ''
+    })
+
+    const workflowContent = `
+name: Test Workflow
+on: push
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: myorg/checkout@v4
+`
+    fs.writeFileSync(path.join(tempDir, 'test.yml'), workflowContent)
+
+    github.mockOctokit.rest.repos.get.mockResolvedValueOnce({
+      data: {
+        fork: true,
+        parent: {
+          owner: { login: 'actions' },
+          name: 'checkout'
+        }
       }
     })
-    ;(scanDependencies as jest.Mock).mockResolvedValue(new Map())
-    ;(submitDependencies as jest.Mock).mockResolvedValue(0)
+
+    github.mockOctokit.rest.dependencyGraph.createRepositorySnapshot.mockResolvedValueOnce(
+      {}
+    )
 
     await run()
 
-    expect(scanDependencies).toHaveBeenCalledWith(
-      '/workspace/.github/workflows',
-      ['actions', 'custom/actions'],
-      '/workspace'
-    )
+    expect(core.setOutput).toHaveBeenCalledWith('dependency-count', 2)
+    expect(
+      github.mockOctokit.rest.dependencyGraph.createRepositorySnapshot
+    ).toHaveBeenCalledTimes(1)
   })
 
-  it('should handle missing environment variables', async () => {
-    delete process.env.GITHUB_REPOSITORY
+  it('Handles invalid fork regex', async () => {
+    core.getInput.mockImplementation((name: string) => {
+      const inputs: Record<string, string> = {
+        token: 'test-token',
+        repository: 'test-owner/test-repo',
+        'workflow-directory': tempDir,
+        'fork-organizations': '',
+        'fork-regex': 'invalid[regex'
+      }
+      return inputs[name] || ''
+    })
 
     await run()
 
-    expect(core.setFailed).toHaveBeenCalledWith(
-      'GITHUB_REPOSITORY environment variable is not set'
-    )
+    expect(core.setFailed).toHaveBeenCalled()
   })
 
-  it('should handle scanning errors', async () => {
-    const error = new Error('Scan failed')
-    ;(scanDependencies as jest.Mock).mockRejectedValue(error)
+  it('Sets failed status on error', async () => {
+    core.getInput.mockImplementation(() => {
+      throw new Error('Input error')
+    })
 
     await run()
 
-    expect(core.setFailed).toHaveBeenCalledWith('Scan failed')
+    expect(core.setFailed).toHaveBeenCalledWith('Input error')
   })
 })
