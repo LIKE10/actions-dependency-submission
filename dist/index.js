@@ -38466,10 +38466,19 @@ class ForkResolver {
      * @returns Resolved dependency with potential fork information
      */
     async resolveDependency(dependency) {
+        // Resolve SHA to version if applicable
+        let resolvedRef = dependency.ref;
+        if (this.isShaReference(dependency.ref)) {
+            const versionTag = await this.resolveShaToBestVersion(dependency.owner, dependency.repo, dependency.ref);
+            if (versionTag) {
+                resolvedRef = versionTag;
+                coreExports.info(`Resolved SHA ${dependency.ref} to version ${versionTag} for ${dependency.owner}/${dependency.repo}`);
+            }
+        }
         const base = {
             owner: dependency.owner,
             repo: dependency.repo,
-            ref: dependency.ref,
+            ref: resolvedRef,
             sourcePath: dependency.sourcePath
         };
         // Check if this dependency is from a fork organization
@@ -38538,6 +38547,158 @@ class ForkResolver {
             };
         }
         return undefined;
+    }
+    /**
+     * Checks if a reference is a SHA (40-character hex string)
+     *
+     * @param ref Reference string to check
+     * @returns True if ref is a SHA
+     */
+    isShaReference(ref) {
+        return /^[0-9a-f]{40}$/i.test(ref);
+    }
+    /**
+     * Resolves a SHA to the most specific version tag
+     *
+     * @param owner Repository owner
+     * @param repo Repository name
+     * @param sha SHA to resolve
+     * @returns Most specific version tag or undefined
+     */
+    async resolveShaToBestVersion(owner, repo, sha) {
+        try {
+            coreExports.debug(`Resolving SHA ${sha} for ${owner}/${repo}`);
+            // Fetch tags from the repository
+            const tags = await this.fetchRepositoryTags(owner, repo);
+            // Find tags that match this SHA
+            const matchingTags = tags.filter((tag) => tag.sha === sha);
+            if (matchingTags.length === 0) {
+                coreExports.debug(`No tags found matching SHA ${sha}`);
+                // If this is a fork organization, try the parent repository
+                if (this.forkOrganizations.has(owner)) {
+                    const original = await this.findOriginalRepository(owner, repo);
+                    if (original) {
+                        coreExports.debug(`Trying parent repository ${original.owner}/${original.repo}`);
+                        const parentTags = await this.fetchRepositoryTags(original.owner, original.repo);
+                        const parentMatches = parentTags.filter((tag) => tag.sha === sha);
+                        if (parentMatches.length > 0) {
+                            return this.selectMostSpecificVersion(parentMatches);
+                        }
+                    }
+                }
+                return undefined;
+            }
+            return this.selectMostSpecificVersion(matchingTags);
+        }
+        catch (error) {
+            coreExports.debug(`Failed to resolve SHA ${sha} for ${owner}/${repo}: ${error}`);
+            return undefined;
+        }
+    }
+    /**
+     * Fetches tags for a repository
+     *
+     * @param owner Repository owner
+     * @param repo Repository name
+     * @returns Array of tags with name and SHA
+     */
+    async fetchRepositoryTags(owner, repo) {
+        try {
+            const tags = [];
+            let page = 1;
+            const perPage = 100;
+            // Fetch up to 500 tags (5 pages)
+            while (page <= 5) {
+                const { data } = await this.octokit.rest.repos.listTags({
+                    owner,
+                    repo,
+                    per_page: perPage,
+                    page
+                });
+                if (data.length === 0) {
+                    break;
+                }
+                for (const tag of data) {
+                    tags.push({
+                        name: tag.name,
+                        sha: tag.commit.sha
+                    });
+                }
+                if (data.length < perPage) {
+                    break;
+                }
+                page++;
+            }
+            return tags;
+        }
+        catch (error) {
+            coreExports.debug(`Failed to fetch tags for ${owner}/${repo}: ${error}`);
+            return [];
+        }
+    }
+    /**
+     * Selects the most specific version from matching tags
+     *
+     * @param tags Array of tags matching the same SHA
+     * @returns Most specific version with wildcards if needed
+     */
+    selectMostSpecificVersion(tags) {
+        // Parse version tags (v1.2.3, v1.2, v1)
+        const versionTags = tags
+            .map((tag) => {
+            const match = tag.name.match(/^v(\d+)(?:\.(\d+))?(?:\.(\d+))?$/);
+            if (!match)
+                return null;
+            const [, major, minor, patch] = match;
+            return {
+                name: tag.name,
+                major: parseInt(major, 10),
+                minor: minor ? parseInt(minor, 10) : undefined,
+                patch: patch ? parseInt(patch, 10) : undefined
+            };
+        })
+            .filter((v) => v !== null);
+        if (versionTags.length === 0) {
+            // No semantic version tags found, return first tag name as-is
+            return tags[0].name;
+        }
+        // Sort by specificity: patch > minor > major, then by version numbers descending
+        versionTags.sort((a, b) => {
+            // Prefer tags with patch version
+            if (a.patch !== undefined && b.patch === undefined)
+                return -1;
+            if (a.patch === undefined && b.patch !== undefined)
+                return 1;
+            // Prefer tags with minor version
+            if (a.minor !== undefined && b.minor === undefined)
+                return -1;
+            if (a.minor === undefined && b.minor !== undefined)
+                return 1;
+            // Compare by version numbers (descending)
+            if (a.major !== b.major)
+                return b.major - a.major;
+            if (a.minor !== b.minor) {
+                return (b.minor || 0) - (a.minor || 0);
+            }
+            if (a.patch !== b.patch) {
+                return (b.patch || 0) - (a.patch || 0);
+            }
+            return 0;
+        });
+        const mostSpecific = versionTags[0];
+        // Build version string with wildcards for missing parts
+        if (mostSpecific.patch !== undefined) {
+            // v1.2.3 - fully specific
+            return mostSpecific.name;
+        }
+        else if (mostSpecific.minor !== undefined) {
+            // v1.2 - add wildcard for patch
+            return `v${mostSpecific.major}.${mostSpecific.minor}.*`;
+        }
+        else {
+            // v1 - add wildcards for minor and patch
+            return `v${mostSpecific.major}.*.*`;
+        }
     }
     /**
      * Deduplicates dependencies by owner/repo/ref combination
