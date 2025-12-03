@@ -122,6 +122,6 @@ export class DependencySubmitter {
    */
   private createPackageUrl(owner: string, repo: string, ref: string): string {
     // Package URL format for GitHub Actions
-    return `pkg:github/${owner}/${repo}@${ref}`
+    return `pkg:githubactions/${owner}/${repo}@${ref}`
   }
 }
