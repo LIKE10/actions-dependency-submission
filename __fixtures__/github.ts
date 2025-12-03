@@ -1,12 +1,14 @@
 import { jest } from '@jest/globals'
 
 const mockReposGet = jest.fn()
+const mockReposListTags = jest.fn()
 const mockCreateSnapshot = jest.fn()
 
 export const getOctokit = jest.fn(() => ({
   rest: {
     repos: {
-      get: mockReposGet
+      get: mockReposGet,
+      listTags: mockReposListTags
     },
     dependencyGraph: {
       createRepositorySnapshot: mockCreateSnapshot
@@ -18,7 +20,8 @@ export const getOctokit = jest.fn(() => ({
 export const mockOctokit = {
   rest: {
     repos: {
-      get: mockReposGet
+      get: mockReposGet,
+      listTags: mockReposListTags
     },
     dependencyGraph: {
       createRepositorySnapshot: mockCreateSnapshot
