@@ -249,6 +249,17 @@ export class ForkResolver {
   }
 
   /**
+   * Maximum number of pages to fetch when retrieving tags (100 tags per page)
+   * This limits the total to 500 tags, which should be sufficient for most repositories
+   */
+  private static readonly MAX_TAG_PAGES = 5
+
+  /**
+   * Semantic version pattern for matching version tags (e.g., v1, v1.2, v1.2.3)
+   */
+  private static readonly SEMVER_PATTERN = /^v(\d+)(?:\.(\d+))?(?:\.(\d+))?$/
+
+  /**
    * Fetches tags for a repository
    *
    * @param owner Repository owner
@@ -264,8 +275,8 @@ export class ForkResolver {
       let page = 1
       const perPage = 100
 
-      // Fetch up to 500 tags (5 pages)
-      while (page <= 5) {
+      // Fetch tags up to MAX_TAG_PAGES
+      while (page <= ForkResolver.MAX_TAG_PAGES) {
         const { data } = await this.octokit.rest.repos.listTags({
           owner,
           repo,
@@ -310,7 +321,7 @@ export class ForkResolver {
     // Parse version tags (v1.2.3, v1.2, v1)
     const versionTags = tags
       .map((tag) => {
-        const match = tag.name.match(/^v(\d+)(?:\.(\d+))?(?:\.(\d+))?$/)
+        const match = tag.name.match(ForkResolver.SEMVER_PATTERN)
         if (!match) return null
 
         const [, major, minor, patch] = match
@@ -328,27 +339,8 @@ export class ForkResolver {
       return tags[0].name
     }
 
-    // Sort by specificity: patch > minor > major, then by version numbers descending
-    versionTags.sort((a, b) => {
-      // Prefer tags with patch version
-      if (a.patch !== undefined && b.patch === undefined) return -1
-      if (a.patch === undefined && b.patch !== undefined) return 1
-
-      // Prefer tags with minor version
-      if (a.minor !== undefined && b.minor === undefined) return -1
-      if (a.minor === undefined && b.minor !== undefined) return 1
-
-      // Compare by version numbers (descending)
-      if (a.major !== b.major) return b.major - a.major
-      if (a.minor !== b.minor) {
-        return (b.minor || 0) - (a.minor || 0)
-      }
-      if (a.patch !== b.patch) {
-        return (b.patch || 0) - (a.patch || 0)
-      }
-
-      return 0
-    })
+    // Sort by specificity and version numbers
+    versionTags.sort(this.compareVersionTags)
 
     const mostSpecific = versionTags[0]
 
@@ -363,6 +355,38 @@ export class ForkResolver {
       // v1 - add wildcards for minor and patch
       return `v${mostSpecific.major}.*.*`
     }
+  }
+
+  /**
+   * Compares two version tags for sorting by specificity and version numbers
+   * Prefers more specific versions (patch > minor > major), then higher version numbers
+   *
+   * @param a First version tag
+   * @param b Second version tag
+   * @returns Negative if a should come first, positive if b should come first, 0 if equal
+   */
+  private compareVersionTags(
+    a: { major: number; minor?: number; patch?: number },
+    b: { major: number; minor?: number; patch?: number }
+  ): number {
+    // Prefer tags with patch version
+    if (a.patch !== undefined && b.patch === undefined) return -1
+    if (a.patch === undefined && b.patch !== undefined) return 1
+
+    // Prefer tags with minor version
+    if (a.minor !== undefined && b.minor === undefined) return -1
+    if (a.minor === undefined && b.minor !== undefined) return 1
+
+    // Compare by version numbers (descending)
+    if (a.major !== b.major) return b.major - a.major
+    if (a.minor !== b.minor) {
+      return (b.minor || 0) - (a.minor || 0)
+    }
+    if (a.patch !== b.patch) {
+      return (b.patch || 0) - (a.patch || 0)
+    }
+
+    return 0
   }
 
   /**
