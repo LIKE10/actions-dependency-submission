@@ -1,62 +1,149 @@
 /**
  * Unit tests for the action's main functionality, src/main.ts
- *
- * To mock dependencies in ESM, you can create fixtures that export mock
- * functions and objects. For example, the core module is mocked in this test,
- * so that the actual '@actions/core' module is not imported.
  */
 import { jest } from '@jest/globals'
 import * as core from '../__fixtures__/core.js'
-import { wait } from '../__fixtures__/wait.js'
+import * as github from '../__fixtures__/github.js'
+import * as fs from 'fs'
+import * as os from 'os'
+import * as path from 'path'
 
 // Mocks should be declared before the module being tested is imported.
 jest.unstable_mockModule('@actions/core', () => core)
-jest.unstable_mockModule('../src/wait.js', () => ({ wait }))
+jest.unstable_mockModule('@actions/github', () => github)
 
-// The module being tested should be imported dynamically. This ensures that the
-// mocks are used in place of any actual dependencies.
+// The module being tested should be imported dynamically.
 const { run } = await import('../src/main.js')
 
 describe('main.ts', () => {
-  beforeEach(() => {
-    // Set the action's inputs as return values from core.getInput().
-    core.getInput.mockImplementation(() => '500')
+  let tempDir: string
 
-    // Mock the wait function so that it does not actually wait.
-    wait.mockImplementation(() => Promise.resolve('done!'))
+  beforeEach(() => {
+    jest.clearAllMocks()
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'main-test-'))
+
+    // Set default inputs
+    core.getInput.mockImplementation((name: string) => {
+      const inputs: Record<string, string> = {
+        token: 'test-token',
+        repository: 'test-owner/test-repo',
+        'workflow-directory': tempDir,
+        'fork-organizations': '',
+        'fork-regex': ''
+      }
+      return inputs[name] || ''
+    })
   })
 
   afterEach(() => {
-    jest.resetAllMocks()
+    if (fs.existsSync(tempDir)) {
+      fs.rmSync(tempDir, { recursive: true, force: true })
+    }
   })
 
-  it('Sets the time output', async () => {
-    await run()
+  it('Processes workflow files and submits dependencies', async () => {
+    const workflowContent = `
+name: Test Workflow
+on: push
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+`
+    fs.writeFileSync(path.join(tempDir, 'test.yml'), workflowContent)
 
-    // Verify the time output was set.
-    expect(core.setOutput).toHaveBeenNthCalledWith(
-      1,
-      'time',
-      // Simple regex to match a time string in the format HH:MM:SS.
-      expect.stringMatching(/^\d{2}:\d{2}:\d{2}/)
+    github.mockOctokit.rest.dependencyGraph.createRepositorySnapshot.mockResolvedValueOnce(
+      {}
     )
-  })
-
-  it('Sets a failed status', async () => {
-    // Clear the getInput mock and return an invalid value.
-    core.getInput.mockClear().mockReturnValueOnce('this is not a number')
-
-    // Clear the wait mock and return a rejected promise.
-    wait
-      .mockClear()
-      .mockRejectedValueOnce(new Error('milliseconds is not a number'))
 
     await run()
 
-    // Verify that the action was marked as failed.
-    expect(core.setFailed).toHaveBeenNthCalledWith(
-      1,
-      'milliseconds is not a number'
+    expect(core.setOutput).toHaveBeenCalledWith('dependency-count', 1)
+    expect(
+      github.mockOctokit.rest.dependencyGraph.createRepositorySnapshot
+    ).toHaveBeenCalledTimes(1)
+    expect(core.setFailed).not.toHaveBeenCalled()
+  })
+
+  it('Handles empty workflow directory', async () => {
+    await run()
+
+    expect(core.warning).toHaveBeenCalledWith(
+      'No action dependencies found in workflow files'
     )
+    expect(core.setOutput).toHaveBeenCalledWith('dependency-count', 0)
+  })
+
+  it('Processes forked actions with fork organizations', async () => {
+    core.getInput.mockImplementation((name: string) => {
+      const inputs: Record<string, string> = {
+        token: 'test-token',
+        repository: 'test-owner/test-repo',
+        'workflow-directory': tempDir,
+        'fork-organizations': 'myorg',
+        'fork-regex': ''
+      }
+      return inputs[name] || ''
+    })
+
+    const workflowContent = `
+name: Test Workflow
+on: push
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: myorg/checkout@v4
+`
+    fs.writeFileSync(path.join(tempDir, 'test.yml'), workflowContent)
+
+    github.mockOctokit.rest.repos.get.mockResolvedValueOnce({
+      data: {
+        fork: true,
+        parent: {
+          owner: { login: 'actions' },
+          name: 'checkout'
+        }
+      }
+    })
+
+    github.mockOctokit.rest.dependencyGraph.createRepositorySnapshot.mockResolvedValueOnce(
+      {}
+    )
+
+    await run()
+
+    expect(core.setOutput).toHaveBeenCalledWith('dependency-count', 2)
+    expect(
+      github.mockOctokit.rest.dependencyGraph.createRepositorySnapshot
+    ).toHaveBeenCalledTimes(1)
+  })
+
+  it('Handles invalid fork regex', async () => {
+    core.getInput.mockImplementation((name: string) => {
+      const inputs: Record<string, string> = {
+        token: 'test-token',
+        repository: 'test-owner/test-repo',
+        'workflow-directory': tempDir,
+        'fork-organizations': '',
+        'fork-regex': 'invalid[regex'
+      }
+      return inputs[name] || ''
+    })
+
+    await run()
+
+    expect(core.setFailed).toHaveBeenCalled()
+  })
+
+  it('Sets failed status on error', async () => {
+    core.getInput.mockImplementation(() => {
+      throw new Error('Input error')
+    })
+
+    await run()
+
+    expect(core.setFailed).toHaveBeenCalledWith('Input error')
   })
 })
