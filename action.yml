@@ -1,23 +1,43 @@
-name: The name of your action here
-description: Provide a description here
-author: Your name or organization here
+name: GitHub Actions Dependency Submission
+description:
+  Submit GitHub Actions workflow dependencies to GitHub's Dependency Graph with
+  fork traversal support
+author: Jesse Houwing
 
 # Add your action's branding here. This will appear on the GitHub Marketplace.
 branding:
-  icon: heart
-  color: red
+  icon: package
+  color: blue
 
 # Define your inputs here.
 inputs:
-  milliseconds:
-    description: Your input description here
+  token:
+    description: GitHub token for API access and dependency submission
     required: true
-    default: '1000'
+    default: ${{ github.token }}
+  repository:
+    description: Repository to submit dependencies for (owner/repo format)
+    required: false
+    default: ${{ github.repository }}
+  workflow-directory:
+    description: Directory containing workflow files to scan
+    required: false
+    default: .github/workflows
+  fork-organizations:
+    description:
+      Comma-separated list of organization names that contain forked actions
+    required: false
+  fork-regex:
+    description: >
+      Regular expression pattern to transform forked repository names to
+      original names. Must contain named captures 'org' and 'repo' (e.g.,
+      '(?<org>[^/]+)/(?<repo>actions-.+)')
+    required: false
 
 # Define your outputs here.
 outputs:
-  time:
-    description: Your output description here
+  dependency-count:
+    description: Number of dependencies submitted
 
 runs:
   using: node24

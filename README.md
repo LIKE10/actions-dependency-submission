@@ -1,305 +1,170 @@
-# Create a GitHub Action Using TypeScript
+# GitHub Actions Dependency Submission
 
-![Linter](https://github.com/actions/typescript-action/actions/workflows/linter.yml/badge.svg)
-![CI](https://github.com/actions/typescript-action/actions/workflows/ci.yml/badge.svg)
-![Check dist/](https://github.com/actions/typescript-action/actions/workflows/check-dist.yml/badge.svg)
-![CodeQL](https://github.com/actions/typescript-action/actions/workflows/codeql-analysis.yml/badge.svg)
+![Linter](https://github.com/jessehouwing/actions-dependency-submission/actions/workflows/linter.yml/badge.svg)
+![CI](https://github.com/jessehouwing/actions-dependency-submission/actions/workflows/ci.yml/badge.svg)
+![Check dist/](https://github.com/jessehouwing/actions-dependency-submission/actions/workflows/check-dist.yml/badge.svg)
+![CodeQL](https://github.com/jessehouwing/actions-dependency-submission/actions/workflows/codeql-analysis.yml/badge.svg)
 ![Coverage](./badges/coverage.svg)
 
-Use this template to bootstrap the creation of a TypeScript action. :rocket:
+A GitHub Action that scans your repository's workflow files and submits action dependencies to GitHub's Dependency Graph with fork traversal support.
 
-This template includes compilation support, tests, a validation workflow,
-publishing, and versioning guidance.
+## Features
 
-If you are new, there's also a simpler introduction in the
-[Hello world JavaScript action repository](https://github.com/actions/hello-world-javascript-action).
+- 🔍 **Automatic Workflow Scanning**: Scans `.github/workflows` directory for GitHub Actions dependencies
+- 🔀 **Fork Traversal**: Detects forked actions and submits both the fork and original repository as dependencies
+- 🔗 **GitHub API Integration**: Uses GitHub's fork relationship to find original repositories
+- 🎯 **Regex Pattern Matching**: Supports custom regex patterns for repositories without fork relationships (e.g., EMU or GitHub-DR)
+- 📊 **Dependency Graph Integration**: Submits dependencies to GitHub's Dependency Graph for security advisory tracking
 
-## Create Your Own Action
+## Usage
 
-To create your own action, you can use this repository as a template! Just
-follow the below instructions:
+### Basic Usage
 
-1. Click the **Use this template** button at the top of the repository
-1. Select **Create a new repository**
-1. Select an owner and name for your new repository
-1. Click **Create repository**
-1. Clone your new repository
+```yaml
+name: Submit Dependencies
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '0 0 * * 0' # Weekly
 
-> [!IMPORTANT]
->
-> Make sure to remove or update the [`CODEOWNERS`](./CODEOWNERS) file! For
-> details on how to use this file, see
-> [About code owners](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners).
+jobs:
+  submit-dependencies:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # Required to read workflow files
+      id-token: write # Required for dependency submission
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jessehouwing/actions-dependency-submission@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+```
 
-## Initial Setup
+### With Fork Organization Support
 
-After you've cloned the repository to your local machine or codespace, you'll
-need to perform some initial setup steps before you can develop your action.
+If your enterprise uses forked actions (e.g., `myenterprise/actions-checkout` as a fork of `actions/checkout`):
 
-> [!NOTE]
->
-> You'll need to have a reasonably modern version of
-> [Node.js](https://nodejs.org) handy (20.x or later should work!). If you are
-> using a version manager like [`nodenv`](https://github.com/nodenv/nodenv) or
-> [`fnm`](https://github.com/Schniz/fnm), this template has a `.node-version`
-> file at the root of the repository that can be used to automatically switch to
-> the correct version when you `cd` into the repository. Additionally, this
-> `.node-version` file is used by GitHub Actions in any `actions/setup-node`
-> actions.
+```yaml
+- uses: jessehouwing/actions-dependency-submission@v1
+  with:
+    token: ${{ secrets.GITHUB_TOKEN }}
+    fork-organizations: 'myenterprise,myorg'
+```
 
-1. :hammer_and_wrench: Install the dependencies
+This will submit both `myenterprise/actions-checkout` and the original `actions/checkout` as dependencies, ensuring security advisories for the original repository also apply to your fork.
 
+### With Custom Regex Pattern
+
+For cases where fork relationships don't exist (e.g., EMU or GitHub-DR environments):
+
+```yaml
+- uses: jessehouwing/actions-dependency-submission@v1
+  with:
+    token: ${{ secrets.GITHUB_TOKEN }}
+    fork-organizations: 'myenterprise'
+    fork-regex: '^(?<org>myenterprise)/actions-(?<repo>.+)$'
+```
+
+The regex must contain named captures `org` and `repo` to identify the original repository. In this example:
+- `myenterprise/actions-checkout` would resolve to `myenterprise/checkout`
+- This is useful when forks follow a naming convention but don't have GitHub fork relationships
+
+## Inputs
+
+| Input | Description | Required | Default |
+|-------|-------------|----------|---------|
+| `token` | GitHub token for API access and dependency submission | Yes | `${{ github.token }}` |
+| `repository` | Repository to submit dependencies for (owner/repo format) | No | `${{ github.repository }}` |
+| `workflow-directory` | Directory containing workflow files to scan | No | `.github/workflows` |
+| `fork-organizations` | Comma-separated list of organization names that contain forked actions | No | - |
+| `fork-regex` | Regular expression pattern to transform forked repository names. Must contain named captures `org` and `repo` | No | - |
+
+## Outputs
+
+| Output | Description |
+|--------|-------------|
+| `dependency-count` | Number of dependencies submitted to the Dependency Graph |
+
+## How It Works
+
+1. **Workflow Scanning**: The action scans all `.yml` and `.yaml` files in the specified workflow directory
+2. **Dependency Extraction**: Parses each workflow file to extract `uses:` statements that reference GitHub Actions
+3. **Fork Detection**: For actions from organizations in the `fork-organizations` list:
+   - First tries to apply the `fork-regex` pattern if provided
+   - Falls back to checking GitHub's fork relationship via the API
+4. **Dependency Submission**: Submits all dependencies to GitHub's Dependency Graph:
+   - For forked actions, submits both the fork and original repository
+   - Uses Package URL (purl) format: `pkg:github/{owner}/{repo}@{ref}`
+5. **Security Advisories**: GitHub automatically matches submitted dependencies against its security advisory database
+
+## Why Use This Action?
+
+When you use forked GitHub Actions in your workflows, GitHub's Dependabot and security advisories only track the fork, not the original repository. This means:
+
+- Security vulnerabilities in the original action won't trigger alerts for your fork
+- You won't be notified when the original action has security updates
+
+This action solves this problem by submitting both repositories as dependencies, ensuring you receive security advisories for both the fork and the original.
+
+## Example Use Case
+
+Your enterprise has forked `actions/checkout` to `myenterprise/actions-checkout` for additional security controls. Your workflows use:
+
+```yaml
+- uses: myenterprise/actions-checkout@v4
+```
+
+Without this action, you only get security advisories for `myenterprise/actions-checkout`. With this action configured, you'll receive advisories for both:
+- `myenterprise/actions-checkout@v4`
+- `actions/checkout@v4`
+
+## Permissions
+
+The action requires the following permissions:
+
+```yaml
+permissions:
+  contents: read    # To read workflow files
+  id-token: write   # For dependency submission API
+```
+
+## Development
+
+### Setup
+
+1. Install dependencies:
    ```bash
    npm install
    ```
 
-1. :building_construction: Package the TypeScript for distribution
+2. Run tests:
+   ```bash
+   npm test
+   ```
 
+3. Bundle the action:
    ```bash
    npm run bundle
    ```
 
-1. :white_check_mark: Run the tests
+### Testing
 
-   ```bash
-   $ npm test
+The action includes comprehensive unit tests for:
+- Workflow file parsing
+- Fork resolution via GitHub API
+- Regex pattern matching
+- Dependency submission
 
-   PASS  ./index.test.js
-     ✓ throws invalid number (3ms)
-     ✓ wait 500 ms (504ms)
-     ✓ test runs (95ms)
-
-   ...
-   ```
-
-## Update the Action Metadata
-
-The [`action.yml`](action.yml) file defines metadata about your action, such as
-input(s) and output(s). For details about this file, see
-[Metadata syntax for GitHub Actions](https://docs.github.com/en/actions/creating-actions/metadata-syntax-for-github-actions).
-
-When you copy this repository, update `action.yml` with the name, description,
-inputs, and outputs for your action.
-
-## Update the Action Code
-
-The [`src/`](./src/) directory is the heart of your action! This contains the
-source code that will be run when your action is invoked. You can replace the
-contents of this directory with your own code.
-
-There are a few things to keep in mind when writing your action code:
-
-- Most GitHub Actions toolkit and CI/CD operations are processed asynchronously.
-  In `main.ts`, you will see that the action is run in an `async` function.
-
-  ```javascript
-  import * as core from '@actions/core'
-  //...
-
-  async function run() {
-    try {
-      //...
-    } catch (error) {
-      core.setFailed(error.message)
-    }
-  }
-  ```
-
-  For more information about the GitHub Actions toolkit, see the
-  [documentation](https://github.com/actions/toolkit/blob/main/README.md).
-
-So, what are you waiting for? Go ahead and start customizing your action!
-
-1. Create a new branch
-
-   ```bash
-   git checkout -b releases/v1
-   ```
-
-1. Replace the contents of `src/` with your action code
-1. Add tests to `__tests__/` for your source code
-1. Format, test, and build the action
-
-   ```bash
-   npm run all
-   ```
-
-   > This step is important! It will run [`rollup`](https://rollupjs.org/) to
-   > build the final JavaScript action code with all dependencies included. If
-   > you do not run this step, your action will not work correctly when it is
-   > used in a workflow.
-
-1. (Optional) Test your action locally
-
-   The [`@github/local-action`](https://github.com/github/local-action) utility
-   can be used to test your action locally. It is a simple command-line tool
-   that "stubs" (or simulates) the GitHub Actions Toolkit. This way, you can run
-   your TypeScript action locally without having to commit and push your changes
-   to a repository.
-
-   The `local-action` utility can be run in the following ways:
-   - Visual Studio Code Debugger
-
-     Make sure to review and, if needed, update
-     [`.vscode/launch.json`](./.vscode/launch.json)
-
-   - Terminal/Command Prompt
-
-     ```bash
-     # npx @github/local action <action-yaml-path> <entrypoint> <dotenv-file>
-     npx @github/local-action . src/main.ts .env
-     ```
-
-   You can provide a `.env` file to the `local-action` CLI to set environment
-   variables used by the GitHub Actions Toolkit. For example, setting inputs and
-   event payload data used by your action. For more information, see the example
-   file, [`.env.example`](./.env.example), and the
-   [GitHub Actions Documentation](https://docs.github.com/en/actions/learn-github-actions/variables#default-environment-variables).
-
-1. Commit your changes
-
-   ```bash
-   git add .
-   git commit -m "My first action is ready!"
-   ```
-
-1. Push them to your repository
-
-   ```bash
-   git push -u origin releases/v1
-   ```
-
-1. Create a pull request and get feedback on your action
-1. Merge the pull request into the `main` branch
-
-Your action is now published! :rocket:
-
-For information about versioning your action, see
-[Versioning](https://github.com/actions/toolkit/blob/main/docs/action-versioning.md)
-in the GitHub Actions toolkit.
-
-## Validate the Action
-
-You can now validate the action by referencing it in a workflow file. For
-example, [`ci.yml`](./.github/workflows/ci.yml) demonstrates how to reference an
-action in the same repository.
-
-```yaml
-steps:
-  - name: Checkout
-    id: checkout
-    uses: actions/checkout@v4
-
-  - name: Test Local Action
-    id: test-action
-    uses: ./
-    with:
-      milliseconds: 1000
-
-  - name: Print Output
-    id: output
-    run: echo "${{ steps.test-action.outputs.time }}"
-```
-
-For example workflow runs, check out the
-[Actions tab](https://github.com/actions/typescript-action/actions)! :rocket:
-
-## Usage
-
-After testing, you can create version tag(s) that developers can use to
-reference different stable versions of your action. For more information, see
-[Versioning](https://github.com/actions/toolkit/blob/main/docs/action-versioning.md)
-in the GitHub Actions toolkit.
-
-To include the action in a workflow in another repository, you can use the
-`uses` syntax with the `@` symbol to reference a specific branch, tag, or commit
-hash.
-
-```yaml
-steps:
-  - name: Checkout
-    id: checkout
-    uses: actions/checkout@v4
-
-  - name: Test Local Action
-    id: test-action
-    uses: actions/typescript-action@v1 # Commit with the `v1` tag
-    with:
-      milliseconds: 1000
-
-  - name: Print Output
-    id: output
-    run: echo "${{ steps.test-action.outputs.time }}"
-```
-
-## Publishing a New Release
-
-This project includes a helper script, [`script/release`](./script/release)
-designed to streamline the process of tagging and pushing new releases for
-GitHub Actions.
-
-GitHub Actions allows users to select a specific version of the action to use,
-based on release tags. This script simplifies this process by performing the
-following steps:
-
-1. **Retrieving the latest release tag:** The script starts by fetching the most
-   recent SemVer release tag of the current branch, by looking at the local data
-   available in your repository.
-1. **Prompting for a new release tag:** The user is then prompted to enter a new
-   release tag. To assist with this, the script displays the tag retrieved in
-   the previous step, and validates the format of the inputted tag (vX.X.X). The
-   user is also reminded to update the version field in package.json.
-1. **Tagging the new release:** The script then tags a new release and syncs the
-   separate major tag (e.g. v1, v2) with the new release tag (e.g. v1.0.0,
-   v2.1.2). When the user is creating a new major release, the script
-   auto-detects this and creates a `releases/v#` branch for the previous major
-   version.
-1. **Pushing changes to remote:** Finally, the script pushes the necessary
-   commits, tags and branches to the remote repository. From here, you will need
-   to create a new release in GitHub so users can easily reference the new tags
-   in their workflows.
-
-## Dependency License Management
-
-This template includes a GitHub Actions workflow,
-[`licensed.yml`](./.github/workflows/licensed.yml), that uses
-[Licensed](https://github.com/licensee/licensed) to check for dependencies with
-missing or non-compliant licenses. This workflow is initially disabled. To
-enable the workflow, follow the below steps.
-
-1. Open [`licensed.yml`](./.github/workflows/licensed.yml)
-1. Uncomment the following lines:
-
-   ```yaml
-   # pull_request:
-   #   branches:
-   #     - main
-   # push:
-   #   branches:
-   #     - main
-   ```
-
-1. Save and commit the changes
-
-Once complete, this workflow will run any time a pull request is created or
-changes pushed directly to `main`. If the workflow detects any dependencies with
-missing or non-compliant licenses, it will fail the workflow and provide details
-on the issue(s) found.
-
-### Updating Licenses
-
-Whenever you install or update dependencies, you can use the Licensed CLI to
-update the licenses database. To install Licensed, see the project's
-[Readme](https://github.com/licensee/licensed?tab=readme-ov-file#installation).
-
-To update the cached licenses, run the following command:
-
+Run tests with coverage:
 ```bash
-licensed cache
+npm run all
 ```
 
-To check the status of cached licenses, run the following command:
+## License
 
-```bash
-licensed status
-```
+MIT
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
