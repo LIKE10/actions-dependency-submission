@@ -133,7 +133,7 @@ describe('ForkResolver', () => {
       expect(result[0].original).toBeUndefined()
     })
 
-    it('Deduplicates dependencies with same owner/repo/ref', async () => {
+    it('Deduplicates dependencies with same owner/repo/ref and sourcePath', async () => {
       const resolver = new ForkResolver({
         forkOrganizations: [],
         token: 'test-token'
@@ -144,19 +144,59 @@ describe('ForkResolver', () => {
           owner: 'actions',
           repo: 'checkout',
           ref: 'v4',
-          uses: 'actions/checkout@v4'
+          uses: 'actions/checkout@v4',
+          sourcePath: '.github/workflows/ci.yml'
         },
         {
           owner: 'actions',
           repo: 'checkout',
           ref: 'v4',
-          uses: 'actions/checkout@v4'
+          uses: 'actions/checkout@v4',
+          sourcePath: '.github/workflows/ci.yml'
         }
       ]
 
       const result = await resolver.resolveDependencies(dependencies)
 
       expect(result).toHaveLength(1)
+    })
+
+    it('Preserves dependencies with same owner/repo/ref but different sourcePaths', async () => {
+      const resolver = new ForkResolver({
+        forkOrganizations: [],
+        token: 'test-token'
+      })
+
+      const dependencies = [
+        {
+          owner: 'actions',
+          repo: 'checkout',
+          ref: 'v4',
+          uses: 'actions/checkout@v4',
+          sourcePath: '.github/workflows/ci.yml'
+        },
+        {
+          owner: 'actions',
+          repo: 'checkout',
+          ref: 'v4',
+          uses: 'actions/checkout@v4',
+          sourcePath: '.github/workflows/check-dist.yml'
+        },
+        {
+          owner: 'actions',
+          repo: 'checkout',
+          ref: 'v4',
+          uses: 'actions/checkout@v4',
+          sourcePath: '.github/workflows/linter.yml'
+        }
+      ]
+
+      const result = await resolver.resolveDependencies(dependencies)
+
+      expect(result).toHaveLength(3)
+      expect(result[0].sourcePath).toBe('.github/workflows/ci.yml')
+      expect(result[1].sourcePath).toBe('.github/workflows/check-dist.yml')
+      expect(result[2].sourcePath).toBe('.github/workflows/linter.yml')
     })
   })
 

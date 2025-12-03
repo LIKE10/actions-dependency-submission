@@ -390,7 +390,7 @@ export class ForkResolver {
   }
 
   /**
-   * Deduplicates dependencies by owner/repo/ref combination
+   * Deduplicates dependencies by owner/repo/ref/sourcePath combination
    *
    * @param dependencies Array of dependencies
    * @returns Deduplicated array
@@ -400,7 +400,7 @@ export class ForkResolver {
   ): ActionDependency[] {
     const seen = new Set<string>()
     return dependencies.filter((dep) => {
-      const key = `${dep.owner}/${dep.repo}@${dep.ref}`
+      const key = `${dep.owner}/${dep.repo}@${dep.ref}|${dep.sourcePath || ''}`
       if (seen.has(key)) {
         return false
       }
