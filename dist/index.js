@@ -38719,7 +38719,7 @@ class ForkResolver {
         return 0;
     }
     /**
-     * Deduplicates dependencies by owner/repo/ref combination
+     * Deduplicates dependencies by owner/repo/ref/sourcePath combination
      *
      * @param dependencies Array of dependencies
      * @returns Deduplicated array
@@ -38727,7 +38727,7 @@ class ForkResolver {
     deduplicateDependencies(dependencies) {
         const seen = new Set();
         return dependencies.filter((dep) => {
-            const key = `${dep.owner}/${dep.repo}@${dep.ref}`;
+            const key = `${dep.owner}/${dep.repo}@${dep.ref}|${dep.sourcePath || ''}`;
             if (seen.has(key)) {
                 return false;
             }
