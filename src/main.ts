@@ -33,9 +33,11 @@ export async function run(): Promise<void> {
     if (forkRegexInput) {
       try {
         forkRegex = new RegExp(forkRegexInput)
-        // Validate that the regex has the required named groups
-        const testMatch = 'test/test'.match(forkRegex)
-        if (!testMatch?.groups?.org || !testMatch?.groups?.repo) {
+        // Validate that the regex contains the required named groups
+        const hasOrg = forkRegex.source.includes('(?<org>')
+        const hasRepo = forkRegex.source.includes('(?<repo>')
+
+        if (!hasOrg || !hasRepo) {
           throw new Error('Regex must contain named captures "org" and "repo"')
         }
       } catch (error) {
