@@ -1,62 +1,133 @@
 /**
  * Unit tests for the action's main functionality, src/main.ts
- *
- * To mock dependencies in ESM, you can create fixtures that export mock
- * functions and objects. For example, the core module is mocked in this test,
- * so that the actual '@actions/core' module is not imported.
  */
 import { jest } from '@jest/globals'
 import * as core from '../__fixtures__/core.js'
-import { wait } from '../__fixtures__/wait.js'
 
-// Mocks should be declared before the module being tested is imported.
+// Mock modules
 jest.unstable_mockModule('@actions/core', () => core)
-jest.unstable_mockModule('../src/wait.js', () => ({ wait }))
+jest.unstable_mockModule('../src/dependency-scanner.js', () => ({
+  scanDependencies: jest.fn(() => Promise.resolve(new Map()))
+}))
+jest.unstable_mockModule('../src/dependency-submission.js', () => ({
+  submitDependencies: jest.fn(() => Promise.resolve(0))
+}))
 
-// The module being tested should be imported dynamically. This ensures that the
-// mocks are used in place of any actual dependencies.
 const { run } = await import('../src/main.js')
+const { scanDependencies } = await import('../src/dependency-scanner.js')
+const { submitDependencies } = await import('../src/dependency-submission.js')
 
 describe('main.ts', () => {
-  beforeEach(() => {
-    // Set the action's inputs as return values from core.getInput().
-    core.getInput.mockImplementation(() => '500')
+  const originalEnv = process.env
 
-    // Mock the wait function so that it does not actually wait.
-    wait.mockImplementation(() => Promise.resolve('done!'))
+  beforeEach(() => {
+    jest.resetAllMocks()
+
+    // Set up environment variables
+    process.env = {
+      ...originalEnv,
+      GITHUB_REPOSITORY: 'owner/repo',
+      GITHUB_SHA: 'abc123',
+      GITHUB_REF: 'refs/heads/main',
+      GITHUB_WORKSPACE: '/workspace'
+    }
+
+    // Set default inputs
+    core.getInput.mockImplementation((name: string) => {
+      switch (name) {
+        case 'token':
+          return 'test-token'
+        case 'workflow-path':
+          return '.github/workflows'
+        case 'additional-paths':
+          return ''
+        default:
+          return ''
+      }
+    })
   })
 
   afterEach(() => {
-    jest.resetAllMocks()
+    process.env = originalEnv
   })
 
-  it('Sets the time output', async () => {
-    await run()
+  it('should scan and submit dependencies successfully', async () => {
+    const mockDeps = new Map([
+      [
+        'actions/checkout@v4',
+        {
+          name: 'actions/checkout',
+          version: 'v4',
+          type: 'action' as const,
+          source: 'actions/checkout@v4'
+        }
+      ]
+    ])
 
-    // Verify the time output was set.
-    expect(core.setOutput).toHaveBeenNthCalledWith(
-      1,
-      'time',
-      // Simple regex to match a time string in the format HH:MM:SS.
-      expect.stringMatching(/^\d{2}:\d{2}:\d{2}/)
-    )
-  })
-
-  it('Sets a failed status', async () => {
-    // Clear the getInput mock and return an invalid value.
-    core.getInput.mockClear().mockReturnValueOnce('this is not a number')
-
-    // Clear the wait mock and return a rejected promise.
-    wait
-      .mockClear()
-      .mockRejectedValueOnce(new Error('milliseconds is not a number'))
+    ;(scanDependencies as jest.Mock).mockResolvedValue(mockDeps)
+    ;(submitDependencies as jest.Mock).mockResolvedValue(1)
 
     await run()
 
-    // Verify that the action was marked as failed.
-    expect(core.setFailed).toHaveBeenNthCalledWith(
-      1,
-      'milliseconds is not a number'
+    expect(scanDependencies).toHaveBeenCalledWith(
+      '/workspace/.github/workflows',
+      [],
+      '/workspace'
     )
+
+    expect(submitDependencies).toHaveBeenCalledWith(
+      'test-token',
+      'owner',
+      'repo',
+      mockDeps,
+      'abc123',
+      'refs/heads/main'
+    )
+
+    expect(core.setOutput).toHaveBeenCalledWith('dependency-count', '1')
+  })
+
+  it('should handle additional paths', async () => {
+    core.getInput.mockImplementation((name: string) => {
+      switch (name) {
+        case 'token':
+          return 'test-token'
+        case 'workflow-path':
+          return '.github/workflows'
+        case 'additional-paths':
+          return 'actions,custom/actions'
+        default:
+          return ''
+      }
+    })
+    ;(scanDependencies as jest.Mock).mockResolvedValue(new Map())
+    ;(submitDependencies as jest.Mock).mockResolvedValue(0)
+
+    await run()
+
+    expect(scanDependencies).toHaveBeenCalledWith(
+      '/workspace/.github/workflows',
+      ['actions', 'custom/actions'],
+      '/workspace'
+    )
+  })
+
+  it('should handle missing environment variables', async () => {
+    delete process.env.GITHUB_REPOSITORY
+
+    await run()
+
+    expect(core.setFailed).toHaveBeenCalledWith(
+      'GITHUB_REPOSITORY environment variable is not set'
+    )
+  })
+
+  it('should handle scanning errors', async () => {
+    const error = new Error('Scan failed')
+    ;(scanDependencies as jest.Mock).mockRejectedValue(error)
+
+    await run()
+
+    expect(core.setFailed).toHaveBeenCalledWith('Scan failed')
   })
 })

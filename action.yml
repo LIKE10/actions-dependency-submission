@@ -1,23 +1,36 @@
-name: The name of your action here
-description: Provide a description here
-author: Your name or organization here
+name: Actions Dependency Submission
+description:
+  Submit GitHub Actions dependencies from workflows, composite actions, and
+  callable workflows to the Dependency Submission API
+author: Jesse Houwing
 
 # Add your action's branding here. This will appear on the GitHub Marketplace.
 branding:
-  icon: heart
-  color: red
+  icon: package
+  color: blue
 
 # Define your inputs here.
 inputs:
-  milliseconds:
-    description: Your input description here
+  token:
+    description:
+      'GitHub token with contents:write permission for dependency submission'
     required: true
-    default: '1000'
+    default: ${{ github.token }}
+  workflow-path:
+    description: 'Path to the .github/workflows directory'
+    required: false
+    default: '.github/workflows'
+  additional-paths:
+    description:
+      'Additional paths to scan for composite actions and callable workflows
+      (comma-separated or newline-separated)'
+    required: false
+    default: ''
 
 # Define your outputs here.
 outputs:
-  time:
-    description: Your output description here
+  dependency-count:
+    description: 'Number of dependencies submitted'
 
 runs:
   using: node24
