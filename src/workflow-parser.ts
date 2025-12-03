@@ -225,10 +225,7 @@ export async function isCallableWorkflow(filePath: string): Promise<boolean> {
     const content = await fs.promises.readFile(filePath, 'utf-8')
     const parsed = yaml.parse(content)
     // A callable workflow has workflow_call trigger
-    return (
-      parsed?.on?.workflow_call !== undefined ||
-      parsed?.true?.workflow_call !== undefined
-    )
+    return parsed?.on?.workflow_call !== undefined
   } catch {
     return false
   }

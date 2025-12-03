@@ -88,10 +88,10 @@ export async function submitDependencies(
 
 /**
  * Convert an ActionDependency to a Package URL (purl)
- * Format: pkg:githubactions/owner/repo@version
+ * Format: pkg:github/owner/repo@version
  */
 function convertToPackageUrl(dep: ActionDependency): string {
-  // GitHub Actions use the githubactions ecosystem
+  // GitHub Actions use the github ecosystem
   const name = dep.name.replace(/\//g, '%2F')
-  return `pkg:githubactions/${name}@${dep.version}`
+  return `pkg:github/${name}@${dep.version}`
 }
