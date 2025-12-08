@@ -6,7 +6,6 @@ import type { ResolvedDependency } from './fork-resolver.js'
  * Constants for dependency relationships and scopes
  */
 const DEPENDENCY_RELATIONSHIP = {
-  NONE: undefined,
   DIRECT: 'direct',
   INDIRECT: 'indirect'
 } as const
@@ -68,10 +67,10 @@ export class DependencySubmitter {
     // Determine the effective relationship based on configuration
     const reportTransitiveAsDirect =
       this.config.reportTransitiveAsDirect !== false
-    const effectiveRelationship = DEPENDENCY_RELATIONSHIP.NONE
-    //      isTransitive && !reportTransitiveAsDirect
-    //        ? DEPENDENCY_RELATIONSHIP.INDIRECT
-    //        : DEPENDENCY_RELATIONSHIP.DIRECT
+    const effectiveRelationship =
+      isTransitive && !reportTransitiveAsDirect
+        ? DEPENDENCY_RELATIONSHIP.INDIRECT
+        : DEPENDENCY_RELATIONSHIP.DIRECT
 
     // When a SHA was resolved to a version, report both:
     // - The SHA with the effective relationship (direct or indirect based on configuration)
@@ -95,10 +94,9 @@ export class DependencySubmitter {
       const versionPurl = this.createPackageUrl(owner, repo, ref, actionPath)
       manifests.push({
         package_url: versionPurl,
-        relationship: DEPENDENCY_RELATIONSHIP.NONE,
-        //          reportTransitiveAsDirect
-        //          ? effectiveRelationship
-        //          : DEPENDENCY_RELATIONSHIP.INDIRECT,
+        relationship: reportTransitiveAsDirect
+          ? effectiveRelationship
+          : DEPENDENCY_RELATIONSHIP.INDIRECT,
         scope: DEPENDENCY_SCOPE.RUNTIME
       })
       count++
@@ -107,10 +105,7 @@ export class DependencySubmitter {
       const purl = this.createPackageUrl(owner, repo, ref, actionPath)
       manifests.push({
         package_url: purl,
-        relationship: DEPENDENCY_RELATIONSHIP.NONE,
-        //          effectiveRelationship,
-        //          ? effectiveRelationship
-        //          : DEPENDENCY_RELATIONSHIP.INDIRECT,
+        relationship: effectiveRelationship,
         scope: DEPENDENCY_SCOPE.RUNTIME
       })
       count++
