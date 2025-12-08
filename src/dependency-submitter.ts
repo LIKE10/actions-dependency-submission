@@ -12,7 +12,7 @@ const DEPENDENCY_RELATIONSHIP = {
 } as const
 
 const DEPENDENCY_SCOPE = {
-  RUNTIME: 'runtime'
+  RUNTIME: undefined
 } as const
 
 /**

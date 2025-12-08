@@ -39089,7 +39089,7 @@ const DEPENDENCY_RELATIONSHIP = {
     INDIRECT: 'indirect'
 };
 const DEPENDENCY_SCOPE = {
-    RUNTIME: 'runtime'
+    RUNTIME: undefined
 };
 /**
  * Submits dependencies to GitHub's Dependency Graph
