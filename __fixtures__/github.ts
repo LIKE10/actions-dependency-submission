@@ -65,6 +65,8 @@ export const mockPublicOctokit = {
 export const context = {
   sha: 'test-sha-123',
   ref: 'refs/heads/main',
+  eventName: 'push',
+  payload: {},
   repo: {
     owner: 'test-owner',
     repo: 'test-repo'

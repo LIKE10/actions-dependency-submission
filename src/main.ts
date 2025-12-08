@@ -101,12 +101,39 @@ export async function run(): Promise<void> {
     const resolvedDependencies =
       await resolver.resolveDependencies(dependencies)
 
+    // Determine the correct SHA and ref to use
+    // For pull_request events, github.context.sha is the merge commit SHA (refs/pull/<pr>/merge),
+    // but dependency-review-action expects the snapshot to be for the PR head SHA.
+    // See: https://docs.github.com/en/actions/using-workflows/events-that-trigger-workflows#pull_request
+    const isPullRequest =
+      github.context.eventName === 'pull_request' ||
+      github.context.eventName === 'pull_request_target'
+
+    const pullRequest = github.context.payload.pull_request as
+      | { head?: { sha?: string; ref?: string } }
+      | undefined
+
+    const sha =
+      isPullRequest && pullRequest?.head?.sha
+        ? pullRequest.head.sha
+        : github.context.sha
+
+    const ref =
+      isPullRequest && pullRequest?.head?.ref
+        ? `refs/heads/${pullRequest.head.ref}`
+        : github.context.ref
+
+    if (isPullRequest) {
+      core.info(`Pull request detected, using head SHA: ${sha}`)
+      core.info(`Pull request detected, using head ref: ${ref}`)
+    }
+
     // Submit dependencies
     const submitter = new DependencySubmitter({
       token,
       repository,
-      sha: github.context.sha,
-      ref: github.context.ref,
+      sha,
+      ref,
       reportTransitiveAsDirect
     })
     const submittedCount =

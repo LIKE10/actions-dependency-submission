@@ -39,6 +39,11 @@ describe('main.ts', () => {
     if (fs.existsSync(tempDir)) {
       fs.rmSync(tempDir, { recursive: true, force: true })
     }
+    // Reset github context to default values
+    github.context.eventName = 'push'
+    github.context.sha = 'test-sha-123'
+    github.context.ref = 'refs/heads/main'
+    github.context.payload = {}
   })
 
   it('Processes workflow files and submits dependencies', async () => {
@@ -64,6 +69,97 @@ jobs:
       github.mockOctokit.rest.dependencyGraph.createRepositorySnapshot
     ).toHaveBeenCalledTimes(1)
     expect(core.setFailed).not.toHaveBeenCalled()
+  })
+
+  it('Uses PR head SHA and ref for pull_request events', async () => {
+    // Set up pull_request context
+    github.context.eventName = 'pull_request'
+    github.context.sha = 'merge-commit-sha-456' // This is the merge commit SHA
+    github.context.ref = 'refs/pull/123/merge'
+    github.context.payload = {
+      pull_request: {
+        head: {
+          sha: 'pr-head-sha-789',
+          ref: 'feature-branch'
+        }
+      }
+    }
+
+    const workflowContent = `
+name: PR Workflow
+on: pull_request
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+`
+    fs.writeFileSync(path.join(tempDir, 'test.yml'), workflowContent)
+
+    github.mockOctokit.rest.dependencyGraph.createRepositorySnapshot.mockResolvedValueOnce(
+      {}
+    )
+
+    await run()
+
+    expect(core.setOutput).toHaveBeenCalledWith('dependency-count', 1)
+    expect(
+      github.mockOctokit.rest.dependencyGraph.createRepositorySnapshot
+    ).toHaveBeenCalledTimes(1)
+
+    // Verify that the snapshot was submitted with the PR head SHA, not the merge commit SHA
+    const snapshotCall =
+      github.mockOctokit.rest.dependencyGraph.createRepositorySnapshot.mock
+        .calls[0][0]
+    expect(snapshotCall.sha).toBe('pr-head-sha-789')
+    expect(snapshotCall.ref).toBe('refs/heads/feature-branch')
+
+    // Verify info logging
+    expect(core.info).toHaveBeenCalledWith(
+      'Pull request detected, using head SHA: pr-head-sha-789'
+    )
+    expect(core.info).toHaveBeenCalledWith(
+      'Pull request detected, using head ref: refs/heads/feature-branch'
+    )
+  })
+
+  it('Uses PR head SHA and ref for pull_request_target events', async () => {
+    // Set up pull_request_target context
+    github.context.eventName = 'pull_request_target'
+    github.context.sha = 'default-branch-sha-456'
+    github.context.ref = 'refs/heads/main'
+    github.context.payload = {
+      pull_request: {
+        head: {
+          sha: 'pr-head-sha-target-789',
+          ref: 'external-feature-branch'
+        }
+      }
+    }
+
+    const workflowContent = `
+name: PR Target Workflow
+on: pull_request_target
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+`
+    fs.writeFileSync(path.join(tempDir, 'test.yml'), workflowContent)
+
+    github.mockOctokit.rest.dependencyGraph.createRepositorySnapshot.mockResolvedValueOnce(
+      {}
+    )
+
+    await run()
+
+    // Verify that the snapshot was submitted with the PR head SHA
+    const snapshotCall =
+      github.mockOctokit.rest.dependencyGraph.createRepositorySnapshot.mock
+        .calls[0][0]
+    expect(snapshotCall.sha).toBe('pr-head-sha-target-789')
+    expect(snapshotCall.ref).toBe('refs/heads/external-feature-branch')
   })
 
   it('Handles empty workflow directory', async () => {
