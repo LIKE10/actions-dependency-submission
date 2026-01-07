@@ -381,7 +381,7 @@ export class ForkResolver {
    * Selects the most specific version from matching tags/branches
    *
    * @param refs Array of refs (tags/branches) matching the same SHA
-   * @returns Most specific version with wildcards if needed, or undefined if no semver refs found
+   * @returns Most specific version tag/branch name, or undefined if no semver refs found
    */
   private selectMostSpecificVersion(
     refs: Array<{ name: string; sha: string }>
@@ -417,20 +417,7 @@ export class ForkResolver {
     versionRefs.sort(this.compareVersionRefs)
 
     const mostSpecific = versionRefs[0]
-
-    // Build version string with wildcards for missing parts
-    // Use the prefix from the most specific version
-    const prefix = mostSpecific.hasVPrefix ? 'v' : ''
-    if (mostSpecific.patch !== undefined) {
-      // v1.2.3 or 1.2.3 - fully specific
-      return mostSpecific.name
-    } else if (mostSpecific.minor !== undefined) {
-      // v1.2 or 1.2 - add wildcard for patch
-      return `${prefix}${mostSpecific.major}.${mostSpecific.minor}.*`
-    } else {
-      // v1 or 1 - add wildcards for minor and patch
-      return `${prefix}${mostSpecific.major}.*.*`
-    }
+    return mostSpecific.name
   }
 
   /**

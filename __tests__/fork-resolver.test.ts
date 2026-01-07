@@ -313,7 +313,7 @@ describe('ForkResolver', () => {
       )
     })
 
-    it('Returns v6.*.* when only v6 tag matches SHA', async () => {
+    it('Returns v6 when only v6 tag matches SHA', async () => {
       github.mockOctokit.rest.repos.listBranches.mockResolvedValueOnce({
         data: []
       })
@@ -348,13 +348,13 @@ describe('ForkResolver', () => {
       const result = await resolver.resolveDependencies(dependencies)
 
       expect(result).toHaveLength(1)
-      expect(result[0].ref).toBe('v6.*.*')
+      expect(result[0].ref).toBe('v6')
       expect(result[0].originalSha).toBe(
         '8e8c483db84b4bee98b60c0593521ed34d9990e8'
       )
     })
 
-    it('Returns v6.0.* when only v6.0 tag matches SHA', async () => {
+    it('Returns v6.0 when only v6.0 tag matches SHA', async () => {
       github.mockOctokit.rest.repos.listBranches.mockResolvedValueOnce({
         data: []
       })
@@ -389,7 +389,7 @@ describe('ForkResolver', () => {
       const result = await resolver.resolveDependencies(dependencies)
 
       expect(result).toHaveLength(1)
-      expect(result[0].ref).toBe('v6.0.*')
+      expect(result[0].ref).toBe('v6.0')
       expect(result[0].originalSha).toBe(
         '8e8c483db84b4bee98b60c0593521ed34d9990e8'
       )
@@ -670,7 +670,7 @@ describe('ForkResolver', () => {
       )
     })
 
-    it('Resolves SHA to version with 1.*.* pattern for major-only versions', async () => {
+    it('Resolves SHA to version 1 for major-only versions', async () => {
       github.mockOctokit.rest.repos.listBranches.mockResolvedValueOnce({
         data: []
       })
@@ -705,13 +705,13 @@ describe('ForkResolver', () => {
       const result = await resolver.resolveDependencies(dependencies)
 
       expect(result).toHaveLength(1)
-      expect(result[0].ref).toBe('1.*.*')
+      expect(result[0].ref).toBe('1')
       expect(result[0].originalSha).toBe(
         '8e8c483db84b4bee98b60c0593521ed34d9990e8'
       )
     })
 
-    it('Resolves SHA to version with 1.2.* pattern for minor versions without v prefix', async () => {
+    it('Resolves SHA to version 1.2 for minor versions without v prefix', async () => {
       github.mockOctokit.rest.repos.listBranches.mockResolvedValueOnce({
         data: []
       })
@@ -746,7 +746,7 @@ describe('ForkResolver', () => {
       const result = await resolver.resolveDependencies(dependencies)
 
       expect(result).toHaveLength(1)
-      expect(result[0].ref).toBe('1.2.*')
+      expect(result[0].ref).toBe('1.2')
       expect(result[0].originalSha).toBe(
         '8e8c483db84b4bee98b60c0593521ed34d9990e8'
       )
@@ -869,7 +869,7 @@ describe('ForkResolver', () => {
       const result = await resolver.resolveDependencies(dependencies)
 
       expect(result).toHaveLength(1)
-      expect(result[0].ref).toBe('v1.2.*')
+      expect(result[0].ref).toBe('v1.2')
       expect(result[0].originalSha).toBe(
         '8e8c483db84b4bee98b60c0593521ed34d9990e8'
       )
